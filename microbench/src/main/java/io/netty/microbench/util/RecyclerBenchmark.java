@@ -16,22 +16,20 @@
 package io.netty.microbench.util;
 
 import io.netty.util.Recycler;
-import org.openjdk.jmh.annotations.Benchmark;
-import org.openjdk.jmh.annotations.BenchmarkMode;
-import org.openjdk.jmh.annotations.Group;
-import org.openjdk.jmh.annotations.Mode;
-import org.openjdk.jmh.annotations.OutputTimeUnit;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.Setup;
-import org.openjdk.jmh.annotations.State;
+import io.netty.util.internal.ThreadLocalRandom;
+import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.options.ChainedOptionsBuilder;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
+@Warmup(iterations = 1)
+@Measurement(iterations = 1, time = 1, timeUnit = TimeUnit.MINUTES)
 public class RecyclerBenchmark extends AbstractMicrobenchmark {
     private Recycler<DummyObject> recycler = new Recycler<DummyObject>() {
         @Override
@@ -61,6 +59,33 @@ public class RecyclerBenchmark extends AbstractMicrobenchmark {
         DummyObject o = recycler.get();
         o.recycle();
         return o;
+    }
+
+    @State(Scope.Thread)
+    public static class InUse {
+        static final int MAX_CAPACITY = 1024;
+        int targetCapacity;
+        final List<DummyObject> list = new ArrayList<DummyObject>(MAX_CAPACITY);
+    }
+
+    @Benchmark
+    public void recyclerGetAndRecycleX(InUse inUse) {
+        if (inUse.list.size() == inUse.targetCapacity) {
+            ThreadLocalRandom random = ThreadLocalRandom.current();
+            inUse.targetCapacity = random.nextInt(1, InUse.MAX_CAPACITY);
+        }
+        if (inUse.list.size() < inUse.targetCapacity) {
+            inUse.list.add(recycler.get());
+        } else {
+            ThreadLocalRandom random = ThreadLocalRandom.current();
+            int recycle = random.nextInt(0, inUse.list.size());
+            inUse.list.get(recycle).recycle();
+            inUse.list.set(recycle, inUse.list.get(inUse.list.size() - 1));
+            inUse.list.remove(inUse.list.size() - 1);
+            if (random.nextInt(0, 100) == 0) {
+                System.gc();
+            }
+        }
     }
 
     @State(Scope.Benchmark)
